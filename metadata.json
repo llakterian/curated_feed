@@ -1,0 +1,8 @@
+{
+  "name": "The Curated Feed",
+  "description": "A personal social media aggregator and powerful content curation tool designed for digital autonomy and focused consumption.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}

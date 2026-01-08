@@ -1,73 +1,95 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Post } from '../types';
-import { Heart, Share2, MessageCircle, Bookmark, ExternalLink } from 'lucide-react';
+import { Heart, Share2, MessageCircle, Bookmark, ExternalLink, Send, X, Copy, Check, Hash, Plus } from 'lucide-react';
 
 interface PostCardProps {
   post: Post;
   onLike: (id: string) => void;
   onBookmark: (id: string) => void;
+  onAddTag: (postId: string, tag: string) => void;
+  onFilterByTag?: (tag: string) => void;
 }
 
-const PostCard: React.FC<PostCardProps> = ({ post, onLike, onBookmark }) => {
+const PostCard: React.FC<PostCardProps> = ({ post, onLike, onBookmark, onAddTag, onFilterByTag }) => {
+  const [showComments, setShowComments] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [showTagInput, setShowTagInput] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [newTag, setNewTag] = useState('');
+
+  const handleAddTag = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newTag.trim()) {
+      onAddTag(post.id, newTag.trim().toLowerCase());
+      setNewTag('');
+      setShowTagInput(false);
+    }
+  };
+
   return (
-    <div className="group relative bg-white/40 backdrop-blur-lg border border-white/60 p-6 mb-4 rounded-[32px] hover:bg-white/60 hover:shadow-2xl hover:shadow-blue-500/5 transition-all duration-500">
-      <div className="flex gap-5">
-        <div className="relative">
-          <img 
-            src={post.authorAvatar} 
-            alt={post.authorName} 
-            className="w-14 h-14 rounded-2xl ring-4 ring-white/80 object-cover flex-shrink-0 shadow-sm"
-          />
-          <div className={`absolute -bottom-1 -right-1 p-1 rounded-lg shadow-sm border border-white ${
-            post.source === 'X' ? 'bg-black' : post.source === 'RSS' ? 'bg-orange-500' : 'bg-red-600'
-          }`}>
-             <span className="text-[8px] font-black text-white uppercase px-1">{post.source}</span>
+    <div className="group relative bg-white/50 backdrop-blur-lg border border-white/80 p-5 md:p-6 mb-4 rounded-[28px] md:rounded-[40px] hover:bg-white/80 hover:shadow-xl transition-all duration-300">
+      <div className="flex flex-col md:flex-row gap-4 md:gap-6">
+        <div className="flex md:flex-col items-center gap-3 md:gap-0">
+          <img src={post.authorAvatar} className="w-12 h-12 md:w-16 md:h-16 rounded-2xl md:rounded-[24px] shadow-sm border-4 border-white object-cover" />
+          <div className="flex md:hidden flex-col">
+            <span className="font-black text-slate-900 text-sm">{post.authorName}</span>
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">@{post.authorHandle}</span>
           </div>
         </div>
+        
         <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="font-black text-slate-900 truncate tracking-tight">{post.authorName}</span>
-              <span className="text-slate-400 text-xs font-bold truncate">@{post.authorHandle}</span>
-              <span className="text-slate-300">•</span>
-              <span className="text-slate-400 text-xs font-medium whitespace-nowrap">{post.timestamp}</span>
+          <div className="hidden md:flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <span className="font-black text-slate-900 tracking-tight">{post.authorName}</span>
+              <span className="text-slate-400 text-xs font-bold">@{post.authorHandle}</span>
+              <span className="text-slate-300 text-xs">•</span>
+              <span className="text-slate-400 text-xs font-medium">{post.timestamp}</span>
             </div>
-            <button className="text-slate-300 hover:text-blue-500 transition-colors">
-              <ExternalLink size={14} />
-            </button>
+            <button className="text-slate-300 hover:text-blue-600 transition-colors"><ExternalLink size={14}/></button>
           </div>
-          <p className="text-slate-800 leading-relaxed mb-6 text-lg font-medium selection:bg-blue-100 selection:text-blue-900">
+
+          <p className="text-slate-800 text-base md:text-lg font-medium leading-relaxed mb-4 md:mb-6 selection:bg-blue-100">
             {post.content}
           </p>
-          <div className="flex items-center justify-between max-w-sm">
-            <button 
-              onClick={() => onLike(post.id)}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-xl transition-all ${
-                post.isLiked ? 'bg-rose-50 text-rose-500' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'
-              }`}
-            >
-              <Heart size={18} fill={post.isLiked ? 'currentColor' : 'none'} className={post.isLiked ? 'animate-bounce' : ''} />
-              <span className="text-sm font-black tracking-tighter">{post.likes > 1000 ? (post.likes/1000).toFixed(1) + 'k' : post.likes}</span>
+
+          <div className="flex flex-wrap gap-2 mb-6">
+            {post.tags.map(t => (
+              <button key={t} onClick={() => onFilterByTag?.(t)} className="flex items-center gap-1 text-[8px] md:text-[10px] font-black uppercase text-blue-600 bg-blue-50/50 hover:bg-blue-600 hover:text-white px-2 py-1 rounded-lg transition-all">
+                <Hash size={10} />{t}
+              </button>
+            ))}
+            {showTagInput ? (
+              <form onSubmit={handleAddTag}><input autoFocus value={newTag} onChange={(e)=>setNewTag(e.target.value)} onBlur={()=>setShowTagInput(false)} className="text-[10px] bg-slate-100/50 rounded-lg px-2 py-1 w-16 outline-none font-bold" placeholder="..." /></form>
+            ) : (
+              <button onClick={()=>setShowTagInput(true)} className="p-1 text-slate-300 hover:text-blue-500 transition-colors"><Plus size={14}/></button>
+            )}
+          </div>
+
+          <div className="flex items-center justify-between max-w-sm md:max-w-md">
+            <button onClick={() => onLike(post.id)} className={`flex items-center gap-2 p-2.5 rounded-2xl transition-all duration-300 group/btn ${post.isLiked ? 'bg-rose-50 text-rose-500 scale-105' : 'text-slate-400 hover:bg-slate-50'}`}>
+              <Heart size={20} fill={post.isLiked ? 'currentColor' : 'none'} className={`${post.isLiked ? 'animate-bounce' : 'group-hover/btn:scale-125 transition-transform'}`} />
+              <span className="text-xs font-black">{post.likes}</span>
             </button>
-            <button className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-slate-400 hover:bg-slate-50 hover:text-slate-600 transition-all">
-              <MessageCircle size={18} />
-              <span className="text-sm font-black tracking-tighter">42</span>
-            </button>
-            <button className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-slate-400 hover:bg-slate-50 hover:text-slate-600 transition-all">
-              <Share2 size={18} />
-            </button>
-            <button 
-              onClick={() => onBookmark(post.id)}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-xl transition-all ${
-                post.isBookmarked ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'
-              }`}
-            >
-              <Bookmark size={18} fill={post.isBookmarked ? 'currentColor' : 'none'} />
-            </button>
+            <button onClick={() => setShowComments(!showComments)} className="flex items-center gap-2 p-2.5 rounded-2xl text-slate-400 hover:bg-indigo-50 hover:text-indigo-600 transition-all active:scale-90"><MessageCircle size={20}/><span className="text-xs font-black">42</span></button>
+            <button onClick={() => setShowShareModal(true)} className="p-2.5 rounded-2xl text-slate-400 hover:bg-blue-50 hover:text-blue-600 transition-all active:scale-90"><Share2 size={20}/></button>
+            <button onClick={() => onBookmark(post.id)} className={`p-2.5 rounded-2xl transition-all active:scale-90 ${post.isBookmarked ? 'bg-blue-100 text-blue-600' : 'text-slate-400 hover:bg-blue-50'}`}><Bookmark size={20} fill={post.isBookmarked ? 'currentColor' : 'none'}/></button>
           </div>
         </div>
       </div>
+
+      {showShareModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm" onClick={() => setShowShareModal(false)}>
+          <div className="bg-white rounded-[40px] w-full max-w-sm p-8 shadow-2xl relative animate-in zoom-in-95 duration-200" onClick={e=>e.stopPropagation()}>
+            <h3 className="text-xl font-black mb-4">Share Signal</h3>
+            <div className="bg-slate-50 p-4 rounded-3xl mb-6 flex justify-between items-center">
+              <span className="text-xs font-medium truncate text-slate-500">{post.content.slice(0, 40)}...</span>
+              <button onClick={()=>{navigator.clipboard.writeText(post.content); setCopied(true); setTimeout(()=>setCopied(false), 2000)}} className="text-blue-600">{copied ? <Check size={18}/> : <Copy size={18}/>}</button>
+            </div>
+            <button className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-xs active:scale-95 transition-all">TWITTER (X)</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

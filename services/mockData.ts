@@ -12,7 +12,8 @@ export const MOCK_POSTS: Post[] = [
     likes: 12400,
     reposts: 2100,
     source: 'X',
-    date: new Date(Date.now() - 1000 * 60 * 120)
+    date: new Date(Date.now() - 1000 * 60 * 120),
+    tags: ['philosophy', 'truth']
   },
   {
     id: '2',
@@ -24,7 +25,8 @@ export const MOCK_POSTS: Post[] = [
     likes: 8500,
     reposts: 1200,
     source: 'X',
-    date: new Date(Date.now() - 1000 * 60 * 240)
+    date: new Date(Date.now() - 1000 * 60 * 240),
+    tags: ['discipline', 'startup']
   },
   {
     id: '3',
@@ -36,7 +38,8 @@ export const MOCK_POSTS: Post[] = [
     likes: 15600,
     reposts: 3400,
     source: 'X',
-    date: new Date(Date.now() - 1000 * 60 * 360)
+    date: new Date(Date.now() - 1000 * 60 * 360),
+    tags: ['crypto', 'economics']
   },
   {
     id: '4',
@@ -48,7 +51,8 @@ export const MOCK_POSTS: Post[] = [
     likes: 4200,
     reposts: 900,
     source: 'RSS',
-    date: new Date(Date.now() - 1000 * 60 * 480)
+    date: new Date(Date.now() - 1000 * 60 * 480),
+    tags: ['ai', 'tech']
   },
   {
     id: '5',
@@ -60,7 +64,8 @@ export const MOCK_POSTS: Post[] = [
     likes: 11000,
     reposts: 1500,
     source: 'YouTube',
-    date: new Date(Date.now() - 1000 * 60 * 600)
+    date: new Date(Date.now() - 1000 * 60 * 600),
+    tags: ['ai', 'future']
   }
 ];
 

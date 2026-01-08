@@ -5,8 +5,8 @@ import { MOCK_POSTS, INITIAL_TABS } from './services/mockData';
 import WalletGate from './components/WalletGate';
 import Sidebar from './components/Sidebar';
 import PostCard from './components/PostCard';
-// Fix: Added missing X and Heart icons to the lucide-react import list
-import { Search, SlidersHorizontal, Loader2, Sparkles, Filter, Calendar, Zap, LayoutGrid, X, Heart } from 'lucide-react';
+import SettingsModal from './components/SettingsModal';
+import { Search, SlidersHorizontal, Loader2, Sparkles, Filter, Calendar, Zap, LayoutGrid, X, Heart, Plus, Hash, Menu } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 
 const App: React.FC = () => {
@@ -17,341 +17,274 @@ const App: React.FC = () => {
   const [posts, setPosts] = useState<Post[]>(MOCK_POSTS);
   const [searchQuery, setSearchQuery] = useState('');
   const [feedFilter, setFeedFilter] = useState<FeedFilter>('all');
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [tabSummary, setTabSummary] = useState<string | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+  // Persistence: Load from localStorage on mount
+  useEffect(() => {
+    const savedUser = localStorage.getItem('curated_feed_user');
+    const savedTabs = localStorage.getItem('curated_feed_tabs');
+    const savedPosts = localStorage.getItem('curated_feed_posts');
+
+    if (savedUser) setUser(JSON.parse(savedUser));
+    if (savedTabs) setTabs(JSON.parse(savedTabs));
+    if (savedPosts) {
+      const parsedPosts = JSON.parse(savedPosts).map((p: any) => ({
+        ...p,
+        date: new Date(p.date)
+      }));
+      setPosts(parsedPosts);
+    }
+  }, []);
+
+  // Save to localStorage whenever state changes
+  useEffect(() => {
+    if (user) localStorage.setItem('curated_feed_user', JSON.stringify(user));
+  }, [user]);
+
+  useEffect(() => {
+    localStorage.setItem('curated_feed_tabs', JSON.stringify(tabs));
+  }, [tabs]);
+
+  useEffect(() => {
+    localStorage.setItem('curated_feed_posts', JSON.stringify(posts));
+  }, [posts]);
 
   const activeTab = useMemo(() => 
     tabs.find(t => t.id === activeTabId), 
     [tabs, activeTabId]
   );
 
+  useEffect(() => {
+    if (activeTab && activeTab.defaultFilter) {
+      setFeedFilter(activeTab.defaultFilter);
+    }
+    setTagFilter(null);
+    setIsSidebarOpen(false); // Close sidebar on mobile when tab changes
+  }, [activeTabId]);
+
   const filteredPosts = useMemo(() => {
     let result = posts.filter(post => {
-      // 1. Tab source logic (simplified mock)
-      if (activeTab?.name === 'Crypto') {
-        if (post.authorHandle !== 'VitalikButerin' && post.source !== 'RSS') return false;
+      if (activeTab && activeTab.sources.length > 0) {
+        const matchesHandle = activeTab.sources.includes(post.authorHandle);
+        const matchesRss = post.source === 'RSS' && (activeTab.rssUrls.length > 0);
+        if (!matchesHandle && !matchesRss) return false;
       }
-      if (activeTab?.name === 'Work') {
-        if (post.authorHandle !== 'techcrunch') return false;
-      }
-
-      // 2. Feed Source Filter (Global for the view)
       if (feedFilter === 'X' && post.source !== 'X') return false;
       if (feedFilter === 'RSS' && post.source !== 'RSS') return false;
       if (feedFilter === 'YouTube' && post.source !== 'YouTube') return false;
+      if (tagFilter && !post.tags.includes(tagFilter)) return false;
 
-      // 3. Search Query Logic (supports from:handle operator)
       const q = searchQuery.toLowerCase();
       if (!q) return true;
 
-      if (q.startsWith('from:')) {
-        const handle = q.replace('from:', '').trim();
-        return post.authorHandle.toLowerCase().includes(handle);
-      }
-      if (q.startsWith('source:')) {
-        const src = q.replace('source:', '').trim();
-        return post.source.toLowerCase().includes(src);
-      }
+      if (q.startsWith('from:')) return post.authorHandle.toLowerCase().includes(q.replace('from:', '').trim());
+      if (q.startsWith('source:')) return post.source.toLowerCase().includes(q.replace('source:', '').trim());
+      if (q.startsWith('#')) return post.tags.some(t => t.includes(q.replace('#', '').trim()));
 
       return post.content.toLowerCase().includes(q) ||
              post.authorName.toLowerCase().includes(q) ||
              post.authorHandle.toLowerCase().includes(q);
     });
 
-    // 4. Sorting logic
-    if (feedFilter === 'recent') {
-      result = [...result].sort((a, b) => b.date.getTime() - a.date.getTime());
-    } else if (feedFilter === 'popular') {
-      result = [...result].sort((a, b) => b.likes - a.likes);
-    }
+    if (feedFilter === 'recent') result = [...result].sort((a, b) => b.date.getTime() - a.date.getTime());
+    else if (feedFilter === 'popular') result = [...result].sort((a, b) => b.likes - a.likes);
 
     return result;
-  }, [posts, activeTab, searchQuery, feedFilter]);
+  }, [posts, activeTab, searchQuery, feedFilter, tagFilter]);
 
   const handleConnect = (newUser: User) => {
-    setUser(newUser);
+    const savedUserStr = localStorage.getItem('curated_feed_user');
+    if (savedUserStr) {
+      const saved = JSON.parse(savedUserStr);
+      setUser({ ...newUser, name: saved.name || newUser.name, avatar: saved.avatar || newUser.avatar });
+    } else {
+      setUser(newUser);
+    }
     setAppState(AppState.DASHBOARD);
   };
 
-  const handleLike = (id: string) => {
-    setPosts(prev => prev.map(p => 
-      p.id === id ? { ...p, isLiked: !p.isLiked, likes: p.isLiked ? p.likes - 1 : p.likes + 1 } : p
-    ));
-  };
-
-  const handleBookmark = (id: string) => {
-    setPosts(prev => prev.map(p => 
-      p.id === id ? { ...p, isBookmarked: !p.isBookmarked } : p
-    ));
-  };
-
-  // Tab CRUD
-  const addTab = () => {
+  const addTab = (name = 'New Stream') => {
     const newId = Math.random().toString(36).substr(2, 9);
-    const newTab: Tab = { id: newId, name: 'New Stream', sources: [], rssUrls: [], notificationsEnabled: false };
+    const newTab: Tab = { id: newId, name, sources: [], rssUrls: [], notificationsEnabled: false, defaultFilter: 'recent' };
     setTabs([...tabs, newTab]);
     setActiveTabId(newId);
-  };
-
-  const deleteTab = (id: string) => {
-    if (tabs.length <= 1) return;
-    const newTabs = tabs.filter(t => t.id !== id);
-    setTabs(newTabs);
-    if (activeTabId === id) setActiveTabId(newTabs[0].id);
-  };
-
-  const updateTab = (id: string, updates: Partial<Tab>) => {
-    setTabs(tabs.map(t => t.id === id ? { ...t, ...updates } : t));
   };
 
   const generateSummary = async () => {
     if (!filteredPosts.length) return;
     setIsSummarizing(true);
     setTabSummary(null);
-
     try {
-      // Fix: Strictly using process.env.API_KEY without fallback for initialization
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const prompt = `Review the following social media stream for the "${activeTab?.name}" group. Give me a 3-sentence summary of the main narratives and sentiment. \n${filteredPosts.slice(0, 10).map(p => p.content).join('\n')}`;
-      
+      const prompt = `Review the following stream for "${activeTab?.name}". Give me a 3-sentence summary: \n${filteredPosts.slice(0, 10).map(p => p.content).join('\n')}`;
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: prompt,
-        config: {
-          systemInstruction: "You are a Gen Z analyst tracking high-signal data. Be brief, use modern terminology, and highlight key trends."
-        }
+        config: { systemInstruction: "Be brief, Gen Z analyst style." }
       });
-
       setTabSummary(response.text || "Summary unavailable.");
     } catch (error) {
-      console.error("Failed to generate summary:", error);
-      setTabSummary("Failed to generate AI summary. Please check your connection.");
+      setTabSummary("AI Synthesis Offline.");
     } finally {
       setIsSummarizing(false);
     }
   };
 
-  if (appState === AppState.LANDING) {
-    return <WalletGate onConnect={handleConnect} />;
-  }
+  if (appState === AppState.LANDING) return <WalletGate onConnect={handleConnect} />;
 
   return (
-    <div className="flex bg-[#F8FAFC] min-h-screen font-inter selection:bg-blue-600/10 relative overflow-hidden">
+    <div className="flex bg-[#F8FAFC] min-h-screen font-inter selection:bg-blue-600/10 relative overflow-x-hidden">
       {/* Dynamic Background Accents */}
-      <div className="absolute top-0 right-0 w-[800px] h-[800px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
-      <div className="absolute bottom-0 left-1/4 w-[600px] h-[600px] bg-indigo-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
-
-      {user && (
-        <Sidebar 
-          user={user}
-          tabs={tabs}
-          activeTabId={activeTabId}
-          onTabChange={setActiveTabId}
-          onAddTab={addTab}
-          onDeleteTab={deleteTab}
-          onUpdateTab={updateTab}
-          onLogout={() => setAppState(AppState.LANDING)}
+      <div className="absolute top-0 right-0 w-full lg:w-[800px] h-[800px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none -z-10" />
+      
+      {/* Mobile Drawer Backdrop */}
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-30 lg:hidden animate-in fade-in duration-300" 
+          onClick={() => setIsSidebarOpen(false)} 
         />
       )}
 
-      <main className="flex-1 max-w-5xl mx-auto min-h-screen pb-20 px-8">
-        <div className="sticky top-0 z-20 pt-8 pb-4 bg-[#F8FAFC]/80 backdrop-blur-md">
-          <div className="">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
-              <div className="space-y-1">
-                <h1 className="text-4xl font-black text-slate-900 tracking-tighter flex items-center gap-3">
-                  {activeTab?.name || 'Feed'}
-                  <span className="text-xs bg-blue-100 text-blue-600 px-3 py-1 rounded-full font-bold uppercase tracking-widest">{filteredPosts.length} items</span>
-                </h1>
-                <p className="text-slate-400 text-sm font-medium">Curated signals filtered by your preferences</p>
+      {/* Responsive Sidebar */}
+      <div className={`fixed inset-y-0 left-0 z-40 transform transition-transform duration-500 lg:relative lg:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        {user && (
+          <Sidebar 
+            user={user}
+            tabs={tabs}
+            activeTabId={activeTabId}
+            onTabChange={setActiveTabId}
+            onAddTab={() => addTab()}
+            onDeleteTab={(id) => setTabs(tabs.filter(t => t.id !== id))}
+            onUpdateTab={(id, upd) => setTabs(tabs.map(t => t.id === id ? { ...t, ...upd } : t))}
+            onReorderTabs={setTabs}
+            onLogout={() => setAppState(AppState.LANDING)}
+            onOpenSettings={() => setShowSettings(true)}
+          />
+        )}
+      </div>
+
+      {showSettings && user && (
+        <SettingsModal 
+          user={user}
+          onClose={() => setShowSettings(false)}
+          onUpdate={(updates) => setUser({ ...user, ...updates })}
+        />
+      )}
+
+      <main className="flex-1 w-full max-w-5xl mx-auto min-h-screen pb-20 px-4 md:px-8">
+        <header className="sticky top-0 z-20 pt-4 md:pt-8 pb-4 bg-[#F8FAFC]/80 backdrop-blur-md">
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <button 
+                  onClick={() => setIsSidebarOpen(true)}
+                  className="lg:hidden p-2 bg-white rounded-xl shadow-sm border border-slate-200 text-slate-600 active:scale-95 transition-all"
+                >
+                  <Menu size={24} />
+                </button>
+                <div className="space-y-0.5">
+                  <h1 className="text-2xl md:text-4xl font-black text-slate-900 tracking-tighter flex items-center gap-2">
+                    {activeTab?.name || 'Feed'}
+                  </h1>
+                  <p className="text-slate-400 text-[10px] md:text-xs font-bold uppercase tracking-widest">{filteredPosts.length} signals active</p>
+                </div>
               </div>
               
-              <div className="flex items-center gap-3">
-                <div className="relative group">
-                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                    <Search className="text-slate-400 group-focus-within:text-blue-500 transition-colors" size={20} />
-                  </div>
+              <div className="flex items-center gap-2">
+                <div className="hidden sm:relative sm:group">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                   <input 
                     type="text" 
-                    placeholder="Search content or 'from:user'..."
+                    placeholder="Search feed..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-12 pr-6 py-4 bg-white border border-slate-200 rounded-[24px] text-sm font-medium focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 w-full md:w-80 shadow-sm transition-all outline-none"
+                    className="pl-12 pr-6 py-3 bg-white border border-slate-200 rounded-[20px] text-sm focus:ring-4 focus:ring-blue-500/10 w-48 lg:w-64 transition-all outline-none"
                   />
                 </div>
-                <div className="relative group">
-                  <button className="p-4 bg-white border border-slate-200 rounded-[24px] text-slate-500 hover:text-blue-500 hover:border-blue-200 shadow-sm transition-all active:scale-95">
-                    <SlidersHorizontal size={20} />
-                  </button>
-                </div>
+                <button 
+                  onClick={() => addTab('New Alpha')}
+                  className="flex items-center gap-2 px-4 md:px-6 py-3 bg-blue-600 text-white rounded-[20px] shadow-lg shadow-blue-500/20 hover:bg-blue-700 hover:shadow-blue-500/40 active:scale-95 transition-all group/quick ring-offset-2 ring-blue-500/20 hover:ring-2"
+                >
+                  <Plus size={18} className="group-hover/quick:rotate-90 transition-transform" />
+                  <span className="text-[10px] font-black uppercase tracking-widest whitespace-nowrap">Quick Add</span>
+                </button>
               </div>
             </div>
 
-            {/* AI Summary Banner (Glass Card) */}
-            <div className="relative group overflow-hidden bg-gradient-to-br from-blue-600 via-indigo-600 to-indigo-700 rounded-[32px] p-1 shadow-xl shadow-blue-500/20 mb-8 transition-all hover:scale-[1.01]">
-              <div className="bg-white/95 backdrop-blur-xl rounded-[30px] p-6">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-4">
-                    <div className="bg-gradient-to-tr from-blue-600 to-indigo-500 p-2.5 rounded-2xl shadow-lg shadow-blue-500/30">
-                      <Sparkles size={20} className="text-white" />
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-black text-slate-900 tracking-tight">Intelligence Briefing</h3>
-                      <p className="text-xs text-slate-500 font-bold uppercase tracking-widest">Powered by Gemini Pro on Base</p>
-                    </div>
-                  </div>
-                  {!tabSummary && !isSummarizing && (
-                    <button 
-                      onClick={generateSummary}
-                      className="group/btn flex items-center gap-2 bg-slate-900 text-white text-xs font-black px-5 py-2.5 rounded-2xl hover:bg-blue-600 transition-all active:scale-95 shadow-lg shadow-slate-900/10"
-                    >
-                      <Zap size={14} className="fill-current" />
-                      SYNTHESIZE ALPHA
-                    </button>
-                  )}
+            {/* Mobile Search - Only visible on small screens */}
+            <div className="sm:hidden relative">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <input 
+                type="text" 
+                placeholder="Search feeds, #tags..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-12 pr-6 py-4 bg-white border border-slate-200 rounded-[24px] text-sm focus:ring-4 focus:ring-blue-500/10 outline-none"
+              />
+            </div>
+          </div>
+        </header>
+
+        {/* AI Briefing - Glass Design */}
+        <div className="relative group overflow-hidden bg-gradient-to-br from-blue-600 to-indigo-700 rounded-[32px] p-[1px] shadow-xl shadow-blue-500/10 mb-8 transition-all hover:scale-[1.005]">
+          <div className="bg-white/95 backdrop-blur-xl rounded-[31px] p-5 md:p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="bg-blue-600 p-2 rounded-xl shadow-lg shadow-blue-500/20">
+                  <Sparkles size={18} className="text-white" />
                 </div>
-                
-                {isSummarizing && (
-                  <div className="mt-4 flex items-center gap-3 text-blue-600 font-black text-sm animate-pulse px-2">
-                    <Loader2 className="animate-spin" size={18} />
-                    <span>EXTRACTING SIGNAL FROM NOISE...</span>
-                  </div>
-                )}
-
-                {tabSummary && (
-                  <div className="mt-4 p-5 bg-blue-50/50 border border-blue-100/50 rounded-2xl relative overflow-hidden group/summary">
-                    <div className="absolute top-0 right-0 p-2 opacity-0 group-hover/summary:opacity-100 transition-opacity">
-                      <button onClick={() => setTabSummary(null)} className="text-slate-400 hover:text-slate-600">
-                        <X size={16} />
-                      </button>
-                    </div>
-                    <p className="text-slate-700 leading-relaxed font-medium italic">
-                      "{tabSummary}"
-                    </p>
-                  </div>
-                )}
+                <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight">Signal Briefing</h3>
               </div>
+              {!tabSummary && !isSummarizing && (
+                <button onClick={generateSummary} className="text-[10px] font-black text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-100 active:scale-95 transition-all">SYNTHESIZE</button>
+              )}
             </div>
-
-            {/* Filter Pills */}
-            <div className="flex items-center gap-2 mb-8 overflow-x-auto no-scrollbar pb-2">
-              <button 
-                onClick={() => setFeedFilter('all')}
-                className={`flex items-center gap-2 px-6 py-3 rounded-2xl text-xs font-black transition-all whitespace-nowrap ${feedFilter === 'all' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'bg-white text-slate-500 hover:bg-slate-100'}`}
-              >
-                <LayoutGrid size={14} /> ALL FEEDS
-              </button>
-              <button 
-                onClick={() => setFeedFilter('X')}
-                className={`flex items-center gap-2 px-6 py-3 rounded-2xl text-xs font-black transition-all whitespace-nowrap ${feedFilter === 'X' ? 'bg-black text-white' : 'bg-white text-slate-500 hover:bg-slate-100'}`}
-              >
-                X (TWITTER)
-              </button>
-              <button 
-                onClick={() => setFeedFilter('RSS')}
-                className={`flex items-center gap-2 px-6 py-3 rounded-2xl text-xs font-black transition-all whitespace-nowrap ${feedFilter === 'RSS' ? 'bg-orange-500 text-white' : 'bg-white text-slate-500 hover:bg-slate-100'}`}
-              >
-                RSS FEEDS
-              </button>
-              <div className="w-px h-6 bg-slate-200 mx-2" />
-              <button 
-                onClick={() => setFeedFilter('recent')}
-                className={`flex items-center gap-2 px-6 py-3 rounded-2xl text-xs font-black transition-all whitespace-nowrap ${feedFilter === 'recent' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' : 'bg-white text-slate-500 hover:bg-slate-100'}`}
-              >
-                <Calendar size={14} /> NEWEST
-              </button>
-              <button 
-                onClick={() => setFeedFilter('popular')}
-                className={`flex items-center gap-2 px-6 py-3 rounded-2xl text-xs font-black transition-all whitespace-nowrap ${feedFilter === 'popular' ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/20' : 'bg-white text-slate-500 hover:bg-slate-100'}`}
-              >
-                <Heart size={14} className="fill-current" /> VIRAL
-              </button>
-            </div>
+            
+            {isSummarizing ? (
+              <div className="flex items-center gap-2 text-blue-600 font-bold text-xs animate-pulse"><Loader2 className="animate-spin" size={14} /> FILTERING NOISE...</div>
+            ) : tabSummary ? (
+              <div className="text-sm text-slate-600 italic leading-relaxed border-l-2 border-blue-500/20 pl-4">{tabSummary}</div>
+            ) : (
+              <p className="text-xs text-slate-400">Ready to extract market signal from current tab.</p>
+            )}
           </div>
         </div>
 
-        {/* Feed Content */}
-        <div className="space-y-4">
-          {filteredPosts.length > 0 ? (
-            filteredPosts.map(post => (
-              <PostCard 
-                key={post.id} 
-                post={post} 
-                onLike={handleLike}
-                onBookmark={handleBookmark}
-              />
-            ))
-          ) : (
-            <div className="flex flex-col items-center justify-center py-32 px-6 text-center">
-              <div className="bg-white p-10 rounded-[40px] shadow-sm border border-slate-100 mb-8">
-                <div className="bg-slate-50 p-6 rounded-3xl">
-                  <Search size={64} className="text-slate-200" />
-                </div>
-              </div>
-              <h3 className="text-2xl font-black text-slate-900 mb-2">Signal Lost</h3>
-              <p className="text-slate-400 font-medium max-w-xs">
-                No content matches your current filters. Try expanding your search or adding more sources to this stream.
-              </p>
-            </div>
-          )}
+        {/* Filters */}
+        <div className="flex items-center gap-2 mb-8 overflow-x-auto no-scrollbar pb-2 mask-fade-right">
+          <button onClick={() => setFeedFilter('all')} className={`px-5 py-2.5 rounded-xl text-[10px] font-black transition-all whitespace-nowrap ${feedFilter === 'all' ? 'bg-slate-900 text-white' : 'bg-white text-slate-500'}`}>ALL</button>
+          <button onClick={() => setFeedFilter('recent')} className={`flex items-center gap-1.5 px-5 py-2.5 rounded-xl text-[10px] font-black transition-all whitespace-nowrap ${feedFilter === 'recent' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-500'}`}><Calendar size={12}/> RECENT</button>
+          <button onClick={() => setFeedFilter('popular')} className={`flex items-center gap-1.5 px-5 py-2.5 rounded-xl text-[10px] font-black transition-all whitespace-nowrap ${feedFilter === 'popular' ? 'bg-rose-500 text-white' : 'bg-white text-slate-500'}`}><Zap size={12}/> POPULAR</button>
+          {tagFilter && <button onClick={() => setTagFilter(null)} className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl text-[10px] font-black bg-blue-100 text-blue-600 border border-blue-200">#{tagFilter.toUpperCase()} <X size={12} /></button>}
+        </div>
+
+        <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-700">
+          {filteredPosts.map(post => (
+            <PostCard 
+              key={post.id} 
+              post={post} 
+              onLike={(id) => setPosts(prev => prev.map(p => p.id === id ? { ...p, isLiked: !p.isLiked, likes: p.isLiked ? p.likes-1 : p.likes+1 } : p))}
+              onBookmark={(id) => setPosts(prev => prev.map(p => p.id === id ? { ...p, isBookmarked: !p.isBookmarked } : p))}
+              onAddTag={(pid, tag) => setPosts(prev => prev.map(p => p.id === pid ? { ...p, tags: Array.from(new Set([...p.tags, tag])) } : p))}
+              onFilterByTag={setTagFilter}
+            />
+          ))}
         </div>
       </main>
 
-      {/* Glass Sidebar Right */}
-      <aside className="hidden xl:block w-96 p-8 h-screen sticky top-0 overflow-y-auto no-scrollbar">
-        <div className="space-y-8">
-          <div className="relative group">
-            <div className="absolute inset-0 bg-gradient-to-br from-blue-600 to-indigo-600 blur-2xl opacity-10 group-hover:opacity-20 transition-opacity" />
-            <div className="relative bg-white/60 backdrop-blur-2xl rounded-[40px] p-8 border border-white/80 shadow-2xl">
-              <h3 className="text-xl font-black mb-4 text-slate-900">FIN Ecosystem</h3>
-              <p className="text-sm font-medium text-slate-600 mb-6 leading-relaxed">
-                Unlock deeper insights by staking FIN on Base. Holders get real-time YouTube alerts and unlimited AI synthesis.
-              </p>
-              <div className="bg-slate-900 text-white rounded-3xl p-5 flex items-center justify-between mb-6 shadow-xl shadow-slate-900/20">
-                <div className="space-y-1">
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Staked Value</p>
-                  <p className="text-lg font-black">2.4k FIN</p>
-                </div>
-                <div className="h-10 w-px bg-white/10" />
-                <div className="space-y-1">
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Yield</p>
-                  <p className="text-lg font-black text-green-400">+12%</p>
-                </div>
-              </div>
-              <button className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-[24px] text-sm font-black transition-all shadow-lg shadow-blue-600/20 active:scale-95">
-                MANAGE STAKE
-              </button>
-            </div>
+      {/* Responsive Ecosystem Sidebar (Right) */}
+      <aside className="hidden xl:block w-80 p-8 h-screen sticky top-0">
+        <div className="bg-slate-900 rounded-[40px] p-8 text-white shadow-2xl space-y-6">
+          <h3 className="text-xl font-black">FIN Staking</h3>
+          <div className="bg-white/10 rounded-2xl p-4">
+            <p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Rewards</p>
+            <p className="text-xl font-black text-blue-400">+14.2% APY</p>
           </div>
-
-          <div className="bg-white/40 backdrop-blur-xl rounded-[40px] p-8 border border-white/60">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Trending Now</h3>
-              <Filter size={14} className="text-slate-400" />
-            </div>
-            <div className="space-y-6">
-              {[
-                { tag: '#BaseL2', count: '45.2k', up: true },
-                { tag: '#FIN', count: '12.8k', up: true },
-                { tag: '#GeminiAI', count: '8.4k', up: false },
-                { tag: '#Onchain', count: '31.1k', up: true },
-              ].map(item => (
-                <div key={item.tag} className="flex items-center justify-between group cursor-pointer">
-                  <span className="font-bold text-slate-900 group-hover:text-blue-600 transition-colors">{item.tag}</span>
-                  <div className="text-right">
-                    <p className="text-xs font-black text-slate-900">{item.count}</p>
-                    <p className={`text-[10px] font-black ${item.up ? 'text-green-500' : 'text-slate-400'}`}>{item.up ? '↑ TRENDING' : '• STABLE'}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="px-8 text-center">
-            <p className="text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">
-              V 2.0.4 • POWERED BY BASE
-            </p>
-          </div>
+          <button className="w-full py-4 bg-blue-600 rounded-2xl text-xs font-black shadow-lg shadow-blue-500/20 active:scale-95 transition-all">STAKE NOW</button>
         </div>
       </aside>
     </div>

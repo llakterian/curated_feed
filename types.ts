@@ -2,6 +2,7 @@
 export interface User {
   id: string;
   name: string;
+  avatar?: string;
   walletAddress: string;
   finTokenBalance: number;
 }
@@ -19,6 +20,7 @@ export interface Post {
   isLiked?: boolean;
   isBookmarked?: boolean;
   date: Date;
+  tags: string[];
 }
 
 export interface Tab {
@@ -27,6 +29,7 @@ export interface Tab {
   sources: string[]; // List of handles
   rssUrls: string[]; // List of custom RSS feed URLs
   notificationsEnabled: boolean;
+  defaultFilter?: FeedFilter;
 }
 
 export enum AppState {
